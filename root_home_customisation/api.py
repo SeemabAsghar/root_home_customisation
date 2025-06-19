@@ -1,0 +1,133 @@
+import frappe
+import requests
+import json
+from datetime import datetime
+
+def get_esignature_token():
+    api_token = frappe.db.get_single_value("eSignature Settings","esignature_api_token")
+    if not api_token:
+        frappe.throw("E-signature API token not configured.")
+    return api_token
+
+@frappe.whitelist()
+def get_esignature_templates():
+    api_token = get_esignature_token()
+
+    url = f"https://esignatures.com/api/templates?token={api_token}"
+    response = requests.get(url)
+
+    if response.status_code != 200:
+        frappe.throw(f"Failed to fetch templates: {response.text}")
+
+    templates = response.json().get("data", [])
+    return [{"label": t["title"], "value": t["template_id"]} for t in templates]
+
+
+
+
+@frappe.whitelist()
+def send_for_signature(quotation_id, signer_name, signer_email):
+    api_token = get_esignature_token()
+
+    quotation = frappe.get_doc("Quotation", quotation_id)
+    customer_name = quotation.customer_name or signer_name
+    customer_email = quotation.contact_email or signer_email
+    company = quotation.company
+    custom_position_in_company = quotation.custom_position_in_company
+    template_raw = quotation.custom_esignature_template
+    template_id = quotation.custom_esignature_template
+
+    
+    if not template_id:
+        frappe.throw("No e-signature template selected.")
+        
+    create_url = f"https://esignatures.com/api/contracts?token={api_token}"
+
+    payload = {
+        "template_id": template_id,
+        
+        "signers": [{
+            "signature_request_delivery_methods": [],
+            "name": customer_name,
+            "email": customer_email
+        }],
+        "placeholder_fields": [
+            {"api_key": "quotation_id", "value": quotation.name},
+            {"api_key": "signer_name", "value": customer_name},
+            {"api_key": "signer_email", "value": customer_email},
+            {"api_key": "company", "value": company},
+            {"api_key": "position_in_company", "value": custom_position_in_company},
+            ]
+        }
+
+
+    create_response = requests.post(create_url, json=payload)
+    if create_response.status_code != 200:
+        frappe.throw(f"Failed to create contract: {create_response.text}")
+
+
+    response_data = create_response.json()
+    contract = response_data["data"]["contract"]
+    custom_contract_id = contract["id"]
+    custom_signing_url = contract["signers"][0]["sign_page_url"]
+
+    pdf_attachment = frappe.attach_print("Quotation", quotation.name, file_name=f"{quotation.name}.pdf")
+
+    frappe.sendmail(
+        recipients=[customer_email],
+        subject=f"Quotation {quotation.name} – Signature Request",
+        message=f"""
+            Dear {customer_name},<br><br>
+            Please find your quotation attached.<br><br>
+            To review and sign it, click the link below:<br>
+            <a href="{custom_signing_url}">{custom_signing_url}</a><br><br>
+            Best regards,<br>
+            Your Company
+        """,
+        attachments=[pdf_attachment]
+    )
+
+    quotation.db_set("custom_signature_sent", 1)
+    quotation.db_set("custom_contract_id", custom_contract_id)
+    quotation.db_set("custom_signing_url", custom_signing_url)
+
+    return {
+        "status": "Email sent with quotation and signing link.",
+        "custom_signing_url": custom_signing_url
+    }
+    
+
+
+    
+@frappe.whitelist()
+def esignature_webhook():
+    raw_data = frappe.local.request.get_data()
+    try:
+        payload = json.loads(raw_data)
+    except Exception:
+        frappe.log_error(f"Webhook JSON parsing failed: {raw_data}", "Webhook Error")
+        return "Invalid payload"
+
+    contract = payload.get("message", {})
+    if contract.get("status") != "signed":
+        return "Ignored"
+
+    custom_contract_id = contract.get("custom_contract_id")
+    pdf_url = contract.get("pdf_url")
+
+    timestamp = None
+    signers = contract.get("signers", [])
+    if signers and signers[0].get("events"):    
+        for ev in signers[0]["events"]:
+            if ev["event"] == "sign_contract":
+                timestamp = ev["timestamp"]
+                break
+
+    quotation_name = frappe.db.get_value("Quotation", {"custom_contract_id": custom_contract_id})
+    if quotation_name:
+        frappe.db.set_value("Quotation", quotation_name, {
+            "custom_signed_pdf_url": pdf_url,
+            "custom_signature_date": timestamp[:10] if timestamp else frappe.utils.nowdate(),
+            "custom_document_signed": 1
+        })
+    
