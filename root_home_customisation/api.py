@@ -9,6 +9,7 @@ def get_esignature_token():
         frappe.throw("E-signature API token not configured.")
     return api_token
 
+
 @frappe.whitelist()
 def get_esignature_templates():
     api_token = get_esignature_token()
@@ -23,8 +24,6 @@ def get_esignature_templates():
     return [{"label": t["title"], "value": t["template_id"]} for t in templates]
 
 
-
-
 @frappe.whitelist()
 def send_for_signature(quotation_id, signer_name, signer_email):
     api_token = get_esignature_token()
@@ -37,7 +36,6 @@ def send_for_signature(quotation_id, signer_name, signer_email):
     template_raw = quotation.custom_esignature_template
     template_id = quotation.custom_esignature_template
 
-    
     if not template_id:
         frappe.throw("No e-signature template selected.")
         
@@ -64,7 +62,6 @@ def send_for_signature(quotation_id, signer_name, signer_email):
     create_response = requests.post(create_url, json=payload)
     if create_response.status_code != 200:
         frappe.throw(f"Failed to create contract: {create_response.text}")
-
 
     response_data = create_response.json()
     contract = response_data["data"]["contract"]
@@ -96,28 +93,31 @@ def send_for_signature(quotation_id, signer_name, signer_email):
         "custom_signing_url": custom_signing_url
     }
     
-
 @frappe.whitelist(allow_guest=True)
 def esignature_webhook():
+    frappe.log_error("Webhook was triggered!", "eSignature Webhook Debug")
+    
     try:
         payload = frappe.local.request.get_json()
+        frappe.log_error(frappe.utils.cstr(payload), "Webhook Payload")
+        
         if not payload:
             frappe.log_error("Webhook received but no payload (Empty JSON)", "Webhook Error")
             return {"error": "Invalid or empty JSON payload"}
-    except Exception as e:
+    except Exception:
         frappe.log_error(frappe.get_traceback(), "Webhook JSON Parsing Failed")
         return {"error": "Invalid JSON"}
 
-    contract = payload.get("message", {})
-    if contract.get("status") != "signed":
-        return {"status": "Ignored", "reason": "Contract not signed"}
+    if payload.get("status") != "contract-signed":
+        return {"status": "Ignored", "reason": "Not a 'contract-signed' webhook"}
 
-    custom_contract_id = contract.get("custom_contract_id")
-    pdf_url = contract.get("pdf_url")
+    contract = payload.get("data", {}).get("contract", {})
+    custom_contract_id = contract.get("id")
+    pdf_url = contract.get("contract_pdf_url")
 
     timestamp = None
     signers = contract.get("signers", [])
-    if signers and signers[0].get("events"):    
+    if signers and signers[0].get("events"):
         for ev in signers[0]["events"]:
             if ev["event"] == "sign_contract":
                 timestamp = ev["timestamp"]
@@ -130,17 +130,16 @@ def esignature_webhook():
             "custom_signature_date": timestamp[:10] if timestamp else frappe.utils.nowdate(),
             "custom_document_signed": 1
         })
+
         return {
             "status": "success",
             "quotation": quotation_name,
             "contract_id": custom_contract_id,
             "timestamp": timestamp
         }
+
     else:
         return {
             "status": "error",
             "reason": f"No Quotation found for contract ID {custom_contract_id}"
         }
-
-        
-        
