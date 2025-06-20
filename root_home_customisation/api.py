@@ -85,7 +85,7 @@ def send_for_signature(quotation_id, signer_name, signer_email):
             To review and sign it, click the link below:<br>
             <a href="{custom_signing_url}">{custom_signing_url}</a><br><br>
             Best regards,<br>
-            Your Company
+            Root Home
         """,
         attachments=[pdf_attachment]
     )
