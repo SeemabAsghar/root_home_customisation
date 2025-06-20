@@ -69,7 +69,12 @@ def send_for_signature(quotation_id, signer_name, signer_email):
     custom_contract_id = contract["id"]
     custom_signing_url = contract["signers"][0]["sign_page_url"]
 
-    pdf_attachment = frappe.attach_print("Quotation", quotation.name, file_name=f"{quotation.name}.pdf")
+    pdf_attachment = frappe.attach_print(
+        doctype = "Quotation",
+        name = quotation.name, 
+        file_name=f"{quotation.name}.pdf",
+        print_format="Root Home Quotation"
+        )
 
     frappe.sendmail(
         recipients=[customer_email],
