@@ -113,7 +113,7 @@ def esignature_webhook():
     except Exception:
         pass
 
-    expected_token = frappe.db.get_single_value("eSignature Settings", "webhook_secret_token")
+    expected_token = frappe.db.get_single_value("eSignature Settings", "esignature_api_token")
     if payload.get("secret_token") != expected_token:
         frappe.log_error("Invalid secret token in webhook", "Webhook Security")
         return {"error": "Unauthorized: Invalid webhook token"}
