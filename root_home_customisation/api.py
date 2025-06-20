@@ -2,6 +2,7 @@ import frappe
 import requests
 import json
 from datetime import datetime
+from frappe.utils import nowdate
 
 def get_esignature_token():
     api_token = frappe.db.get_single_value("eSignature Settings","esignature_api_token")
@@ -93,14 +94,14 @@ def send_for_signature(quotation_id, signer_name, signer_email):
         "custom_signing_url": custom_signing_url
     }
     
+
+import frappe
+from frappe.utils import nowdate
+
 @frappe.whitelist(allow_guest=True)
 def esignature_webhook():
-    frappe.log_error("Webhook was triggered!", "eSignature Webhook Debug")
-    
     try:
         payload = frappe.local.request.get_json()
-        frappe.log_error(frappe.utils.cstr(payload), "Webhook Payload")
-        
         if not payload:
             frappe.log_error("Webhook received but no payload (Empty JSON)", "Webhook Error")
             return {"error": "Invalid or empty JSON payload"}
@@ -108,38 +109,53 @@ def esignature_webhook():
         frappe.log_error(frappe.get_traceback(), "Webhook JSON Parsing Failed")
         return {"error": "Invalid JSON"}
 
+    try:
+        frappe.log_error("Webhook Triggered", "eSignature Webhook Debug")
+        short_log = frappe.utils.cstr(str(payload)[:500])
+        frappe.log_error(short_log, "Webhook Payload Summary")
+    except Exception:
+        pass
+
+    expected_token = frappe.db.get_single_value("eSignature Settings", "webhook_secret_token")
+    if payload.get("secret_token") != expected_token:
+        frappe.log_error("Invalid secret token in webhook", "Webhook Security")
+        return {"error": "Unauthorized: Invalid webhook token"}
+
     if payload.get("status") != "contract-signed":
         return {"status": "Ignored", "reason": "Not a 'contract-signed' webhook"}
 
     contract = payload.get("data", {}).get("contract", {})
-    custom_contract_id = contract.get("id")
-    pdf_url = contract.get("contract_pdf_url")
+    if contract.get("status") != "signed":
+        return {"status": "Ignored", "reason": "Contract not marked as signed"}
 
+    contract_id = contract.get("id")
+    custom_contract_id = contract.get("metadata") or contract_id
+    pdf_url = contract.get("contract_pdf_url")
     timestamp = None
+
     signers = contract.get("signers", [])
-    if signers and signers[0].get("events"):
-        for ev in signers[0]["events"]:
-            if ev["event"] == "sign_contract":
-                timestamp = ev["timestamp"]
+    if signers:
+        for event in signers[0].get("events", []):
+            if event.get("event") == "sign_contract":
+                timestamp = event.get("timestamp")
                 break
 
     quotation_name = frappe.db.get_value("Quotation", {"custom_contract_id": custom_contract_id})
-    if quotation_name:
-        frappe.db.set_value("Quotation", quotation_name, {
-            "custom_signed_pdf_url": pdf_url,
-            "custom_signature_date": timestamp[:10] if timestamp else frappe.utils.nowdate(),
-            "custom_document_signed": 1
-        })
-
-        return {
-            "status": "success",
-            "quotation": quotation_name,
-            "contract_id": custom_contract_id,
-            "timestamp": timestamp
-        }
-
-    else:
+    if not quotation_name:
         return {
             "status": "error",
             "reason": f"No Quotation found for contract ID {custom_contract_id}"
         }
+
+    frappe.db.set_value("Quotation", quotation_name, {
+        "custom_signed_pdf_url": pdf_url,
+        "custom_signature_date": timestamp[:10] if timestamp else nowdate(),
+        "custom_document_signed": 1
+    })
+
+    return {
+        "status": "success",
+        "quotation": quotation_name,
+        "contract_id": contract_id,
+        "timestamp": timestamp
+    }
