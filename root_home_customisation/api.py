@@ -94,10 +94,7 @@ def send_for_signature(quotation_id, signer_name, signer_email):
         "custom_signing_url": custom_signing_url
     }
     
-
-import frappe
-from frappe.utils import nowdate
-
+    
 @frappe.whitelist(allow_guest=True)
 def esignature_webhook():
     try:
