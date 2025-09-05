@@ -33,7 +33,6 @@ def send_for_signature(quotation_id, signer_name, signer_email):
     customer_name = quotation.customer_name or signer_name
     customer_email = quotation.contact_email or signer_email
     company = quotation.company
-    custom_position_in_company = quotation.custom_position_in_company
     template_raw = quotation.custom_esignature_template
     template_id = quotation.custom_esignature_template
 
@@ -55,7 +54,6 @@ def send_for_signature(quotation_id, signer_name, signer_email):
             {"api_key": "signer_name", "value": customer_name},
             {"api_key": "signer_email", "value": customer_email},
             {"api_key": "company", "value": company},
-            {"api_key": "position_in_company", "value": custom_position_in_company},
             ]
         }
 
