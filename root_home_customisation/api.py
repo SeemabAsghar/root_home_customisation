@@ -157,7 +157,7 @@ def esignature_webhook():
     recipients = [user.parent for user in esign_users if frappe.get_value("User", user.parent, "enabled")]
 
     if recipients:
-        message = f"The Quotation <b>{quotation_name}</b> has been signed and marked as completed."
+        message = f"The Quotation <b>{quotation_name}</b> has been signed"
         
         for user in recipients:
             # System Notification
