@@ -3,6 +3,7 @@ import requests
 import json
 from datetime import datetime
 from frappe.utils import nowdate
+from frappe.core.doctype.communication.email import make
 
 def get_esignature_token():
     api_token = frappe.db.get_single_value("eSignature Settings","esignature_api_token")
@@ -147,26 +148,30 @@ def esignature_webhook():
             "reason": f"No Quotation found for contract ID {custom_contract_id}"
         }
 
-    # frappe.db.set_value("Quotation", quotation_name, {
-    #     "custom_signed_pdf_url": pdf_url,
-    #     "custom_signature_date": timestamp[:10] if timestamp else nowdate(),
-    #     "custom_document_signed": 1
-    # })
-    
-    try:
-        quotation = frappe.get_doc("Quotation", quotation_name)
-        quotation.custom_signed_pdf_url = pdf_url
-        quotation.custom_signature_date = timestamp[:10] if timestamp else frappe.utils.nowdate()
-        quotation.custom_document_signed = 1
-        quotation.save()  # Triggers Before Save/After Save events
-        frappe.db.commit()  # Ensure changes are saved
-        frappe.log_error(f"Quotation {quotation_name} updated via webhook", "eSignature Webhook Success")
-    except Exception as e:
-        frappe.log_error(f"Failed to update Quotation {quotation_name}: {str(e)}", "eSignature Webhook Error")
-        return {
-            "status": "error",
-            "reason": f"Failed to update Quotation {quotation_name}: {str(e)}"
-        }
+    frappe.db.set_value("Quotation", quotation_name, {
+        "custom_signed_pdf_url": pdf_url,
+        "custom_signature_date": timestamp[:10] if timestamp else nowdate(),
+        "custom_document_signed": 1
+    })
+    esign_users = frappe.get_all("Has Role", filters={"role": "e-signature"}, fields=["parent"])
+    recipients = [user.parent for user in esign_users if frappe.get_value("User", user.parent, "enabled")]
+
+    if recipients:
+        message = f"The Quotation <b>{quotation_name}</b> has been signed and marked as completed."
+        
+        for user in recipients:
+            # System Notification
+            frappe.publish_realtime(event="msgprint", message=message, user=user)
+            
+            # Email Notification
+            make(
+                subject=f"Quotation {quotation_name} Signed",
+                content=message,
+                recipients=[user],
+                communication_type="Notification",
+                send_email=True
+            )
+
 
     return {
         "status": "success",
