@@ -147,11 +147,26 @@ def esignature_webhook():
             "reason": f"No Quotation found for contract ID {custom_contract_id}"
         }
 
-    frappe.db.set_value("Quotation", quotation_name, {
-        "custom_signed_pdf_url": pdf_url,
-        "custom_signature_date": timestamp[:10] if timestamp else nowdate(),
-        "custom_document_signed": 1
-    })
+    # frappe.db.set_value("Quotation", quotation_name, {
+    #     "custom_signed_pdf_url": pdf_url,
+    #     "custom_signature_date": timestamp[:10] if timestamp else nowdate(),
+    #     "custom_document_signed": 1
+    # })
+    
+    try:
+        quotation = frappe.get_doc("Quotation", quotation_name)
+        quotation.custom_signed_pdf_url = pdf_url
+        quotation.custom_signature_date = timestamp[:10] if timestamp else frappe.utils.nowdate()
+        quotation.custom_document_signed = 1
+        quotation.save()  # Triggers Before Save/After Save events
+        frappe.db.commit()  # Ensure changes are saved
+        frappe.log_error(f"Quotation {quotation_name} updated via webhook", "eSignature Webhook Success")
+    except Exception as e:
+        frappe.log_error(f"Failed to update Quotation {quotation_name}: {str(e)}", "eSignature Webhook Error")
+        return {
+            "status": "error",
+            "reason": f"Failed to update Quotation {quotation_name}: {str(e)}"
+        }
 
     return {
         "status": "success",
