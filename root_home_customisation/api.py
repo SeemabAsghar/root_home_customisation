@@ -153,26 +153,29 @@ def esignature_webhook():
         "custom_signature_date": timestamp[:10] if timestamp else nowdate(),
         "custom_document_signed": 1
     })
+    message = f"The Quotation <b>{quotation_name}</b> has been signed."
+    
     esign_users = frappe.get_all("Has Role", filters={"role": "e-signature"}, fields=["parent"])
-    recipients = [user.parent for user in esign_users if frappe.get_value("User", user.parent, "enabled")]
+    recipients = [u.parent for u in esign_users if frappe.get_value("User", u.parent, "enabled")]
+    
+    for user in recipients:
+        notification = frappe.new_doc("Notification Log")
+        notification.subject = f"Quotation {quotation_name} Signed"
+        notification.email_content = message
+        notification.for_user = user
+        notification.type = "Alert"
+        notification.document_type = "Quotation"
+        notification.document_name = quotation_name
+        notification.insert(ignore_permissions=True)
 
-    if recipients:
-        message = f"The Quotation <b>{quotation_name}</b> has been signed"
         
-        for user in recipients:
-            # System Notification
-            frappe.publish_realtime(event="msgprint", message=message, user=user)
-            
-            # Email Notification
-            make(
-                subject=f"Quotation {quotation_name} Signed",
-                content=message,
-                recipients=[user],
-                communication_type="Notification",
-                send_email=True
-            )
-
-
+    make(
+            subject=f"Quotation {quotation_name} Signed",
+            content=message,
+            recipients=[user],
+            communication_type="Notification",
+            send_email=True
+        )
     return {
         "status": "success",
         "quotation": quotation_name,
