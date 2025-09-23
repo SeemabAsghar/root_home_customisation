@@ -169,13 +169,13 @@ def esignature_webhook():
         notification.insert(ignore_permissions=True)
 
         
-    make(
-            subject=f"Quotation {quotation_name} Signed",
-            content=message,
-            recipients=[user],
-            communication_type="Notification",
-            send_email=True
-        )
+        make(
+                subject=f"Quotation {quotation_name} Signed",
+                content=message,
+                recipients=[user],
+                communication_type="Notification",
+                send_email=True
+            )
     return {
         "status": "success",
         "quotation": quotation_name,
